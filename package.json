@@ -12,6 +12,18 @@
     "manual-test": "tsx scripts/createCopy.ts && tsx src/index.ts -d example/ -e **/_*.tsx",
     "release": "release-it"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/theBGuy/rn-native-stylesheet-cleaner.git"
+  },
+  "author": "theBGuy <thebguy.github@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "react-native",
+    "stylesheet",
+    "cleaner",
+    "optimization"
+  ],
   "dependencies": {
     "@babel/core": "^7.26.0",
     "@babel/parser": "^7.26.3",
