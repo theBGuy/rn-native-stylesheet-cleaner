@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/release-it@17/schema/release-it.json",
+  "git": {
+    "commitMessage": "release v${version}"
+  },
+  "github": {
+    "release": true
+  },
+  "npm": {
+    "publish": true
+  },
+  "plugins": {
+    "@release-it/bumper": {
+      "in": "package.json",
+      "out": "dist/package.json"
+    }
+  },
+  "hooks": {
+    "before:init": ["npm run build", "npm test"],
+    "after:bump": "npm run build",
+    "after:git:release": "echo After git push, before github release",
+    "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}."
+  }
+}
