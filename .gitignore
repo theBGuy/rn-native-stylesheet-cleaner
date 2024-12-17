@@ -1,6 +1,9 @@
 # Node modules
 node_modules/
 
+# Out directory
+dist/
+
 # Logs
 logs/
 *.log

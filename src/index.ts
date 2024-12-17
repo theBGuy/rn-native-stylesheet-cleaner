@@ -8,10 +8,12 @@ import { parse} from '@babel/parser';
 import { Command } from 'commander';
 import { minimatch } from 'minimatch';
 import * as t from "@babel/types";
+import { version } from '../package.json';
 
 const program = new Command();
 
 program
+  .version(version, '-V, --version', 'output the current version')
   .option('-d, --directory <path>', 'directory to parse', 'src')
   .option('-i, --include <patterns>', 'file patterns to include', '**/*.{jsx,tsx}')
   .option('-e, --exclude <patterns>', 'file patterns to exclude', '')
@@ -20,6 +22,11 @@ program
   .parse(process.argv);
 
 const options = program.opts();
+
+if (process.argv.includes('-V') || process.argv.includes('--version')) {
+  process.exit(0);
+}
+
 const directoryPath = path.isAbsolute(options.directory) ? options.directory : path.resolve(process.cwd(), options.directory);
 const includePatterns: string = options.include;
 const excludePatterns: string = options.exclude;
