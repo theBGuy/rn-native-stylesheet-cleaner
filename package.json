@@ -1,7 +1,7 @@
 {
   "scripts": {
     "test": "jest",
-    "manual-test": "tsx scripts/createCopy.ts && tsx src/index.ts -d example/ -e '**/_*.tsx'"
+    "manual-test": "tsx scripts/createCopy.ts && tsx src/index.ts -d example/ -e **/_*.tsx"
   },
   "dependencies": {
     "@babel/core": "^7.26.0",

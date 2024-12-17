@@ -89,13 +89,22 @@ const parseFile = (filePath: string) => {
 };
 
 const shouldIncludeFile = (filePath: string) => {
-  // const shouldInclude = includePatterns.some(pattern => minimatch(filePath, pattern)) || !includePatterns.length;
-  // const shouldExclude = excludePatterns.some(pattern => minimatch(filePath, pattern));
-  const shouldInclude = minimatch(filePath, includePatterns);
-  const shouldExclude = minimatch(filePath, excludePatterns);
-  console.log(filePath, shouldInclude, shouldExclude);
-  return shouldInclude && !shouldExclude;
+  const relativePath = path.relative(process.cwd(), filePath); // Make paths relative
+  const includePatternsArray = includePatterns.trim().split(/\s+/); // Split by space
+  const excludePatternsArray = excludePatterns.trim().split(/\s+/);
+
+  const isIncluded = includePatternsArray.some((pattern) =>
+    minimatch(relativePath, pattern)
+  );
+  const isExcluded = excludePatternsArray.some((pattern) =>
+    minimatch(relativePath, pattern)
+  );
+
+  console.log("Matching:", relativePath, { isIncluded, isExcluded });
+
+  return isIncluded && !isExcluded;
 };
+
 
 const parseDirectory = (dirPath: string) => {
   const files = fs.readdirSync(dirPath);
