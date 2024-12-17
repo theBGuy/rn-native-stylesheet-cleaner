@@ -12,6 +12,12 @@
     "manual-test": "tsx scripts/createCopy.ts && tsx src/index.ts -d example/ -e **/_*.tsx",
     "release": "release-it"
   },
+  "hooks": {
+    "before:init": ["npm test"],
+    "after:bump": "npm run build",
+    "after:git:release": "echo After git push, before github release",
+    "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}."
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/theBGuy/rn-native-stylesheet-cleaner.git"
@@ -32,11 +38,11 @@
     "@babel/types": "^7.26.3",
     "commander": "^12.1.0",
     "minimatch": "^10.0.1",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "@babel/plugin-syntax-jsx": "^7.25.9",
+    "@babel/preset-typescript": "^7.26.0"
   },
   "devDependencies": {
-    "@babel/plugin-syntax-jsx": "^7.25.9",
-    "@babel/preset-typescript": "^7.26.0",
     "@types/babel__core": "^7.20.5",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.2",
