@@ -37,7 +37,7 @@ afterAll(() => {
 });
 
 test('removes unused styles', () => {
-  execSync(`tsx src/index.ts -d ${testDir} -e '**/excluded.tsx'`);
+  execSync(`tsx src/index.ts -d ${testDir} -e **/excluded.tsx`);
   const result = fs.readFileSync(testFile, 'utf-8');
   expect(result).toContain('container');
   expect(result).not.toContain('unused');
