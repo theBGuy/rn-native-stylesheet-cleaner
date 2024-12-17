@@ -1,5 +1,13 @@
 {
+  "name": "rn-native-stylesheet-cleaner",
+  "version": "1.0.0",
+  "description": "A utility tool to clean and optimize React Native stylesheets.",
+  "main": "src/index.ts",
+  "bin": {
+    "rn-native-stylesheet-cleaner": "dist/index.js"
+  },
   "scripts": {
+    "build": "tsc",
     "test": "jest",
     "manual-test": "tsx scripts/createCopy.ts && tsx src/index.ts -d example/ -e **/_*.tsx"
   },

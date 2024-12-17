@@ -13,13 +13,23 @@ program
   .option('-d, --directory <path>', 'directory to parse', 'src')
   .option('-i, --include <patterns>', 'file patterns to include', '**/*.{jsx,tsx}')
   .option('-e, --exclude <patterns>', 'file patterns to exclude', '')
+  .option('--dry-run', 'run without making any changes')
+  .option('--verbose', 'output detailed information')
   .parse(process.argv);
 
 const options = program.opts();
 const directoryPath = path.isAbsolute(options.directory) ? options.directory : path.resolve(process.cwd(), options.directory);
 const includePatterns: string = options.include;
 const excludePatterns: string = options.exclude;
-console.log(includePatterns, excludePatterns)
+const isDryRun = options.dryRun;
+const isVerbose = options.verbose;
+
+// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+const log = (message?: any, ...optionalParams: any[]) => {
+  if (isVerbose) {
+    console.log(message, ...optionalParams);
+  }
+};
 
 const parseFile = (filePath: string) => {
   const code = fs.readFileSync(filePath, "utf-8");
@@ -64,7 +74,7 @@ const parseFile = (filePath: string) => {
               t.isObjectProperty(property) &&
               t.isIdentifier(property.key) &&
               usedStyles.has(property.key.name);
-            console.log(
+            log(
               // @ts-ignore
               `Property ${property.key.name} is ${keep ? "kept" : "removed"}`
             );
@@ -83,8 +93,12 @@ const parseFile = (filePath: string) => {
   });
 
   if (result?.code) {
-    fs.writeFileSync(filePath, result.code, "utf-8");
-    console.log(`Updated file: ${filePath}`);
+    if (!isDryRun) {
+      fs.writeFileSync(filePath, result.code, "utf-8");
+      log(`Updated file: ${filePath}`);
+    } else {
+      log(`Dry run: ${filePath} would be updated`);
+    }
   }
 };
 
@@ -100,7 +114,7 @@ const shouldIncludeFile = (filePath: string) => {
     minimatch(relativePath, pattern)
   );
 
-  console.log("Matching:", relativePath, { isIncluded, isExcluded });
+  log("Matching:", relativePath, { isIncluded, isExcluded });
 
   return isIncluded && !isExcluded;
 };
