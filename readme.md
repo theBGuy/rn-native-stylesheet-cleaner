@@ -9,7 +9,7 @@ As of right now I've noticed biome and eslint both miss when we have unused styl
 ## Features
 
 - Identifies and removes unused styles
-- Organizes styles for better readability
+- ~~Organizes styles for better readability~~ TODO
 - Supports both JavaScript and TypeScript React Native projects
 
 ## Installation
@@ -38,6 +38,9 @@ This will scan your project for stylesheets, identify unused styles, and clean t
 
 ### Options
 
+- `-d, --directory <path>`: Directory to parse (default: `src`)
+- `-i, --include <patterns>`: File patterns to include (default: `**/*.{jsx,tsx}`)
+- `-e, --exclude <patterns>`: File patterns to exclude (default: `''`)
 - `--dry-run`: Run the cleaner without making any changes, just to see what would be cleaned.
 - `--verbose`: Output detailed information during the cleaning process.
 
