@@ -2,6 +2,10 @@
 
 This project is a utility tool designed to clean and optimize React Native stylesheets. It helps in removing unused styles and organizing the stylesheet for better readability and maintainability.
 
+## Why
+
+As of right now I've noticed biome and eslint both miss when we have unused style props and it's annoying to go through and manually remove leftover ones. So, I made this. Hope this speeds up your workflow and leads to less clutter in your files.
+
 ## Features
 
 - Identifies and removes unused styles
