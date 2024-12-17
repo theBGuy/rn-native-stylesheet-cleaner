@@ -35,8 +35,10 @@ const parseFile = (filePath: string) => {
     MemberExpression(path) {
       if (
         path.node.object &&
+        ("name" in path.node.object) &&
         path.node.object.name === styleSheetName &&
         path.node.property &&
+        ("name" in path.node.property) &&
         path.node.property.name
       ) {
         usedStyles.add(path.node.property.name);
@@ -63,6 +65,7 @@ const parseFile = (filePath: string) => {
               t.isIdentifier(property.key) &&
               usedStyles.has(property.key.name);
             console.log(
+              // @ts-ignore
               `Property ${property.key.name} is ${keep ? "kept" : "removed"}`
             );
             return keep;
@@ -74,8 +77,9 @@ const parseFile = (filePath: string) => {
 
   const result = transformFromAstSync(ast, code, {
     filename: filePath,
-    presets: ["@babel/preset-react", "@babel/preset-typescript"],
-    generatorOpts: { compact: false, retainLines: true, concise: true, comments: false },
+    plugins: ["@babel/plugin-syntax-jsx"],
+    presets: [/* "@babel/preset-react", */ "@babel/preset-typescript"],
+    generatorOpts: { compact: false, retainLines: true, comments: true },
   });
 
   if (result?.code) {
