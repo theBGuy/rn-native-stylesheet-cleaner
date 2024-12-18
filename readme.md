@@ -10,7 +10,7 @@ As of right now I've noticed biome and eslint both miss when we have unused styl
 
 - Identifies and removes unused styles
 - ~~Organizes styles for better readability~~ TODO
-- Supports both JavaScript and TypeScript React Native projects
+- Supports both JavaScript and ~~TypeScript~~ (TODO) React Native projects
 
 ## Installation
 

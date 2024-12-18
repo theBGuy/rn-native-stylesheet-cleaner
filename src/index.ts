@@ -98,6 +98,8 @@ const parseFile = (filePath: string) => {
     filename: filePath,
     plugins: ["@babel/plugin-syntax-jsx"],
     presets: [/* "@babel/preset-react", */ "@babel/preset-typescript"],
+    babelrc: false,
+    configFile: false,
     generatorOpts: { compact: false, retainLines: true, comments: true },
   });
 
