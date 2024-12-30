@@ -10,7 +10,7 @@ As of right now I've noticed biome and eslint both miss when we have unused styl
 
 - Identifies and removes unused styles
 - ~~Organizes styles for better readability~~ TODO
-- Supports both JavaScript and ~~TypeScript~~ (TODO) React Native projects
+- Supports both JavaScript and TypeScript React Native projects
 
 ## Installation
 
@@ -49,6 +49,9 @@ Example:
 ```bash
 rn-native-stylesheet-cleaner --dry-run --verbose
 ```
+
+## Warning
+Note: The formatting of the outputted code will be removed during the cleaning process. You will need to reformat the code after running the RN Native Stylesheet Cleaner. It is recommended to use a code formatter like Prettier to reformat your code.
 
 ## Contributing
 
