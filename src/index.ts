@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 
+import ts from "typescript";
 import fs from 'node:fs';
 import path from 'node:path';
-import { transformFromAstSync} from '@babel/core';
-import traverse from "@babel/traverse"
-import { parse} from '@babel/parser';
 import { Command } from 'commander';
 import { minimatch } from 'minimatch';
-import * as t from "@babel/types";
 import { version } from '../package.json';
 
 const program = new Command();
@@ -41,75 +38,103 @@ const log = (message?: any, ...optionalParams: any[]) => {
 };
 
 const parseFile = (filePath: string) => {
-  const code = fs.readFileSync(filePath, "utf-8");
-  const ast = parse(code, {
-    sourceType: "module",
-    plugins: ["jsx", "typescript"],
-  });
+  const sourceCode = fs.readFileSync(filePath, "utf-8");
+  const isTsx = filePath.endsWith(".tsx");
+  const isJsx = filePath.endsWith(".jsx");
 
-  const usedStyles = new Set();
-  const styleSheetName = "styles";
+  const scriptKind = isTsx
+    ? ts.ScriptKind.TSX
+    : isJsx
+    ? ts.ScriptKind.JSX
+    : ts.ScriptKind.Unknown;
 
-  traverse(ast, {
-    MemberExpression(path) {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    sourceCode,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind
+  );
+
+  const usedStyles = new Set<string>();
+
+  function visitReferences(node: ts.Node) {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      node.expression.getText() === "styles"
+    ) {
+      const propertyName = node.name.getText();
+      usedStyles.add(propertyName);
+    }
+    ts.forEachChild(node, visitReferences);
+  }
+  ts.forEachChild(sourceFile, visitReferences);
+
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+
+  const transformer = (context: ts.TransformationContext) => {
+  return (node: ts.Node): ts.Node => {
+    function visit(node: ts.Node): ts.Node {
+      // Handle `StyleSheet.create` transformation
       if (
-        path.node.object &&
-        ("name" in path.node.object) &&
-        path.node.object.name === styleSheetName &&
-        path.node.property &&
-        ("name" in path.node.property) &&
-        path.node.property.name
+        ts.isVariableDeclaration(node) &&
+        node.name.getText() === "styles" &&
+        node.initializer &&
+        ts.isCallExpression(node.initializer)
       ) {
-        usedStyles.add(path.node.property.name);
-      }
-    },
-  });
-
-  traverse(ast, {
-    VariableDeclarator(path) {
-      const { node } = path;
-
-      if (
-        t.isIdentifier(node.id, { name: styleSheetName }) &&
-        t.isCallExpression(node.init) &&
-        t.isMemberExpression(node.init.callee) &&
-        t.isIdentifier(node.init.callee.object, { name: "StyleSheet" }) &&
-        t.isIdentifier(node.init.callee.property, { name: "create" })
-      ) {
-        const styleObject = node.init.arguments[0];
-        if (t.isObjectExpression(styleObject)) {
-          styleObject.properties = styleObject.properties.filter((property) => {
-            const keep =
-              t.isObjectProperty(property) &&
-              t.isIdentifier(property.key) &&
-              usedStyles.has(property.key.name);
-            log(
-              // @ts-ignore
-              `Property ${property.key.name} is ${keep ? "kept" : "removed"}`
-            );
-            return keep;
+        const arg = node.initializer.arguments[0];
+        if (ts.isObjectLiteralExpression(arg)) {
+          const properties = arg.properties.filter((property) => {
+            if (
+              ts.isPropertyAssignment(property) &&
+              ts.isIdentifier(property.name)
+            ) {
+              return usedStyles.has(property.name.text);
+            }
+            return true;
           });
+
+          if (properties.length > 0) {
+            return ts.factory.updateVariableDeclaration(
+              node,
+              node.name,
+              node.exclamationToken,
+              node.type,
+              ts.factory.updateCallExpression(
+                node.initializer,
+                node.initializer.expression,
+                undefined,
+                [ts.factory.updateObjectLiteralExpression(arg, properties)]
+              )
+            );
+          }
+          // If no properties are left, set to empty obj
+          return ts.factory.updateVariableDeclaration(
+            node,
+            node.name,
+            node.exclamationToken,
+            node.type,
+            ts.factory.createObjectLiteralExpression([], true)
+          );
         }
       }
-    },
-  });
 
-  const result = transformFromAstSync(ast, code, {
-    filename: filePath,
-    plugins: ["@babel/plugin-syntax-jsx"],
-    presets: [/* "@babel/preset-react", */ "@babel/preset-typescript"],
-    babelrc: false,
-    configFile: false,
-    generatorOpts: { compact: false, retainLines: true, comments: true },
-  });
-
-  if (result?.code) {
-    if (!isDryRun) {
-      fs.writeFileSync(filePath, result.code, "utf-8");
-      log(`Updated file: ${filePath}`);
-    } else {
-      log(`Dry run: ${filePath} would be updated`);
+      return ts.visitEachChild(node, visit, context);
     }
+
+    return ts.visitNode(node, visit);
+  };
+};
+
+  const result = ts.transform(sourceFile, [transformer]);
+  const transformedSourceFile = result.transformed[0] as ts.SourceFile;
+  const updatedCode = printer.printFile(transformedSourceFile);
+
+  if (!isDryRun) {
+    fs.writeFileSync(filePath, updatedCode, "utf-8");
+    log(`Updated file: ${filePath}`);
+  } else {
+    log(`Dry run: ${filePath} would be updated`);
   }
 };
 
