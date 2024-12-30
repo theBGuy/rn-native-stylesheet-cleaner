@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const testDir = path.join(__dirname, 'test-files');
-const testFile = path.join(testDir, 'test.tsx');
+const testFile = path.join(testDir, 'test.jsx');
 const excludedFile = path.join(testDir, 'excluded.tsx');
 const typescriptTestFile = path.join(testDir, 'typescript-test.tsx');
 
@@ -56,7 +56,7 @@ afterAll(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 
-test('removes unused styles', () => {
+test('removes unused styles with exclusion check', () => {
   execSync(`tsx src/index.ts -d ${testDir} -e **/excluded.tsx`);
   const result = fs.readFileSync(testFile, 'utf-8');
   expect(result).toContain('container');
