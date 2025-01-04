@@ -34,6 +34,12 @@ To use the RN Native Stylesheet Cleaner, navigate to your React Native project d
 rn-native-stylesheet-cleaner
 ```
 
+You can also use the shorthand command:
+
+```bash
+rn-ss-cleaner
+```
+
 This will scan your project for stylesheets, identify unused styles, and clean them up.
 
 ### Options
@@ -51,6 +57,7 @@ rn-native-stylesheet-cleaner --dry-run --verbose
 ```
 
 ## Warning
+
 Note: The formatting of the outputted code will be removed during the cleaning process. You will need to reformat the code after running the RN Native Stylesheet Cleaner. It is recommended to use a code formatter like Prettier to reformat your code.
 
 ## Contributing

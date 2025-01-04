@@ -4,7 +4,8 @@
   "description": "A utility tool to clean and optimize React Native stylesheets.",
   "main": "src/index.ts",
   "bin": {
-    "rn-native-stylesheet-cleaner": "dist/src/index.js"
+    "rn-native-stylesheet-cleaner": "dist/src/index.js",
+    "rn-ss-cleaner": "dist/src/index.js"
   },
   "scripts": {
     "build": "tsc",
