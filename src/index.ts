@@ -63,8 +63,6 @@ const parseFile = (filePath: string) => {
   }
   ts.forEachChild(sourceFile, visitReferences);
 
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
-
   const transformer = (context: ts.TransformationContext) => {
     return (node: ts.Node): ts.Node => {
       function visit(node: ts.Node): ts.Node {
@@ -73,7 +71,9 @@ const parseFile = (filePath: string) => {
           ts.isVariableDeclaration(node) &&
           node.name.getText() === "styles" &&
           node.initializer &&
-          ts.isCallExpression(node.initializer)
+          ts.isCallExpression(node.initializer) &&
+          ts.isPropertyAccessExpression(node.initializer.expression) &&
+          node.initializer.expression.getText() === "StyleSheet.create"
         ) {
           const arg = node.initializer.arguments[0];
           if (ts.isObjectLiteralExpression(arg)) {
@@ -117,13 +117,19 @@ const parseFile = (filePath: string) => {
 
   const result = ts.transform(sourceFile, [transformer]);
   const transformedSourceFile = result.transformed[0] as ts.SourceFile;
-  const updatedCode = printer.printFile(transformedSourceFile);
+  const updatedCode = ts
+    .createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false })
+    .printFile(transformedSourceFile);
 
   result.dispose();
 
   if (hasChanges) {
+    const updatedSourceFile = ts.createSourceFile(filePath, updatedCode, ts.ScriptTarget.Latest, true, scriptKind);
+    const updatedStylesheet = extractStylesheet(updatedSourceFile);
+    const finalCode = replaceStylesheet(sourceCode, updatedStylesheet);
+
     if (!isDryRun) {
-      fs.writeFileSync(filePath, updatedCode, "utf-8");
+      fs.writeFileSync(filePath, finalCode, "utf-8");
       if (!noFormat) {
         formatFile(filePath, formatter);
       }
@@ -134,6 +140,30 @@ const parseFile = (filePath: string) => {
   } else {
     log(`No changes made to: ${filePath}`);
   }
+};
+
+const extractStylesheet = (sourceFile: ts.SourceFile): string => {
+  let stylesheetCode = "";
+  function visit(node: ts.Node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText() === "styles" &&
+      node.initializer &&
+      ts.isCallExpression(node.initializer) &&
+      ts.isPropertyAccessExpression(node.initializer.expression) &&
+      node.initializer.expression.getText() === "StyleSheet.create"
+    ) {
+      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
+      stylesheetCode = printer.printNode(ts.EmitHint.Unspecified, node.initializer, sourceFile);
+    }
+    ts.forEachChild(node, visit);
+  }
+  ts.forEachChild(sourceFile, visit);
+  return stylesheetCode;
+};
+
+const replaceStylesheet = (sourceCode: string, updatedStylesheet: string): string => {
+  return sourceCode.replace(/StyleSheet\.create\(\{[\s\S]*?\}\)/, updatedStylesheet);
 };
 
 const shouldIncludeFile = (filePath: string) => {
@@ -151,7 +181,7 @@ const shouldIncludeFile = (filePath: string) => {
 
 const parseDirectory = (dirPath: string) => {
   const files = fs.readdirSync(dirPath);
-  console.log(dirPath, files.length);
+  log(dirPath, files.length);
   for (const file of files) {
     const filePath = path.join(dirPath, file);
     if (fs.statSync(filePath).isDirectory()) {
