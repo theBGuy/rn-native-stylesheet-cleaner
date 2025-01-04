@@ -1,4 +1,5 @@
 # RN Native Stylesheet Cleaner
+![NPM Downloads](https://img.shields.io/npm/d18m/rn-native-stylesheet-cleaner)
 
 This project is a utility tool designed to clean and optimize React Native stylesheets. It helps in removing unused styles and organizing the stylesheet for better readability and maintainability.
 
