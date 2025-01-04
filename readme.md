@@ -1,4 +1,5 @@
 # RN Native Stylesheet Cleaner
+
 ![NPM Downloads](https://img.shields.io/npm/d18m/rn-native-stylesheet-cleaner)
 
 This project is a utility tool designed to clean and optimize React Native stylesheets. It helps in removing unused styles and organizing the stylesheet for better readability and maintainability.
@@ -48,6 +49,7 @@ This will scan your project for stylesheets, identify unused styles, and clean t
 - `-d, --directory <path>`: Directory to parse (default: `src`)
 - `-i, --include <patterns>`: File patterns to include (default: `**/*.{jsx,tsx}`)
 - `-e, --exclude <patterns>`: File patterns to exclude (default: `''`)
+- `--no-format`: Run the cleaner without reformatting the output.
 - `--dry-run`: Run the cleaner without making any changes, just to see what would be cleaned.
 - `--verbose`: Output detailed information during the cleaning process.
 
@@ -59,7 +61,7 @@ rn-native-stylesheet-cleaner --dry-run --verbose
 
 ## Warning
 
-Note: The formatting of the outputted code will be removed during the cleaning process. You will need to reformat the code after running the RN Native Stylesheet Cleaner. It is recommended to use a code formatter like Prettier to reformat your code.
+Note: The formatting of the outputted code will be initially removed during the cleaning process. However, if you have Prettier or Biome installed, the code will be reformatted automatically. The reformatting behavior is still experimental, and extra whitespace may still be stripped. You can turn off this behavior by using the `--no-format` flag if you prefer to handle formatting manually.
 
 ## Contributing
 
