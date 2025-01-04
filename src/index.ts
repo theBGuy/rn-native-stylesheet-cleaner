@@ -33,7 +33,7 @@ const includePatterns: string = options.include;
 const excludePatterns: string = options.exclude;
 const isDryRun = options.dryRun;
 const isVerbose = options.verbose;
-const noFormat = options.noFormat;
+const noFormat = options.format === false;
 const formatter = detectFormatter(process.cwd());
 
 const log = (message?: any, ...optionalParams: any[]) => {
