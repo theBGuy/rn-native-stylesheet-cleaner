@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { minimatch } from "minimatch";
 import ts from "typescript";
 import { version } from "../package.json";
+import { detectFormatter, formatFile } from "./utils";
 
 const program = new Command();
 
@@ -14,6 +15,7 @@ program
   .option("-d, --directory <path>", "directory to parse", "src")
   .option("-i, --include <patterns>", "file patterns to include", "**/*.{jsx,tsx}")
   .option("-e, --exclude <patterns>", "file patterns to exclude", "")
+  .option("--no-format", "run without formatting the output")
   .option("--dry-run", "run without making any changes")
   .option("--verbose", "output detailed information")
   .parse(process.argv);
@@ -31,12 +33,16 @@ const includePatterns: string = options.include;
 const excludePatterns: string = options.exclude;
 const isDryRun = options.dryRun;
 const isVerbose = options.verbose;
+const noFormat = options.noFormat;
+const formatter = detectFormatter(process.cwd());
 
 const log = (message?: any, ...optionalParams: any[]) => {
   if (isVerbose) {
     console.log(message, ...optionalParams);
   }
 };
+
+log(formatter ? `${formatter} detected` : "No formatter detected; skipping formatting.");
 
 const parseFile = (filePath: string) => {
   const sourceCode = fs.readFileSync(filePath, "utf-8");
@@ -57,7 +63,7 @@ const parseFile = (filePath: string) => {
   }
   ts.forEachChild(sourceFile, visitReferences);
 
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
 
   const transformer = (context: ts.TransformationContext) => {
     return (node: ts.Node): ts.Node => {
@@ -118,6 +124,9 @@ const parseFile = (filePath: string) => {
   if (hasChanges) {
     if (!isDryRun) {
       fs.writeFileSync(filePath, updatedCode, "utf-8");
+      if (!noFormat) {
+        formatFile(filePath, formatter);
+      }
       log(`Updated file: ${filePath}`);
     } else {
       log(`Dry run: ${filePath} would be updated`);
