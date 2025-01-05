@@ -97,13 +97,20 @@ const parseFile = (filePath: string) => {
                 ]),
               );
             }
-            // If no properties are left, set to empty obj
+            // If no properties are left, set to StyleSheet.create({})
             return ts.factory.updateVariableDeclaration(
               node,
               node.name,
               node.exclamationToken,
               node.type,
-              ts.factory.createObjectLiteralExpression([], true),
+              ts.factory.createCallExpression(
+                ts.factory.createPropertyAccessExpression(
+                  ts.factory.createIdentifier("StyleSheet"),
+                  ts.factory.createIdentifier("create"),
+                ),
+                undefined,
+                [ts.factory.createObjectLiteralExpression([], true)],
+              ),
             );
           }
         }

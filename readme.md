@@ -61,7 +61,7 @@ rn-native-stylesheet-cleaner --dry-run --verbose
 
 ## Warning
 
-Note: The formatting of the outputted code will be initially removed during the cleaning process. However, if you have Prettier or Biome installed, the code will be reformatted automatically. The reformatting behavior is still experimental, and extra whitespace may still be stripped. You can turn off this behavior by using the `--no-format` flag if you prefer to handle formatting manually.
+Note: The formatting of the outputted code will be initially removed during the cleaning process. However, if you have Prettier or Biome installed, the code will be reformatted automatically. You can turn off the reformatting behavior by using the `--no-format` flag if you prefer to handle formatting manually.
 
 ## Contributing
 
