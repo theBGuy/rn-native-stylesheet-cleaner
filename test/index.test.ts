@@ -7,6 +7,8 @@ const testFile = path.join(testDir, "test.jsx");
 const excludedFile = path.join(testDir, "excluded.tsx");
 const typescriptTestFile = path.join(testDir, "typescript-test.tsx");
 const emptyStylesTestFile = path.join(testDir, "empty-styles-test.jsx");
+const arrayStylesTestFile = path.join(testDir, "array-styles-test.jsx");
+const optionalStylesTestFile = path.join(testDir, "optional-styles-test.jsx");
 
 beforeAll(() => {
   if (!fs.existsSync(testDir)) {
@@ -72,6 +74,37 @@ beforeAll(() => {
     });
   `,
   );
+  fs.writeFileSync(
+    arrayStylesTestFile,
+    `
+    import { StyleSheet, View, Text } from "react-native";
+    export function TestComponent() {
+      return <View style={styles.container}><Text style={[styles.textBold, styles.textLarge]}>Large Text</Text></View>;
+    }
+    const styles = StyleSheet.create({
+      container: { flex: 1 },
+      textBold: { fontWeight: "bold" },
+      textLarge: { fontSize: 24, lineHeight: 28 },
+      unused: { flex: 2 },
+    });
+  `,
+  );
+  fs.writeFileSync(
+    optionalStylesTestFile,
+    `
+    import { StyleSheet, View, Text } from "react-native";
+    export function TestComponent({ useBold, useLarge }) {
+      return <View style={styles.container}><Text style={[useBold && styles.textBold, useLarge ? styles.textLarge : styles.textSmall]}>Large Text</Text></View>;
+    }
+    const styles = StyleSheet.create({
+      container: { flex: 1 },
+      textBold: { fontWeight: "bold" },
+      textSmall: { fontSize: 16, lineHeight: 20 },
+      textLarge: { fontSize: 24, lineHeight: 28 },
+      unused: { flex: 2 },
+    });
+  `,
+  );
 });
 
 afterAll(() => {
@@ -105,5 +138,24 @@ test("handles empty styles correctly", () => {
   const result = fs.readFileSync(emptyStylesTestFile, "utf-8");
   expect(result).toContain("StyleSheet.create({})");
   // expect(result).not.toContain("StyleSheet.create");
+  expect(result).not.toContain("unused");
+});
+
+test("handles array of styles correctly", () => {
+  execSync(`tsx src/index.ts -d ${testDir} --no-format`);
+  const result = fs.readFileSync(arrayStylesTestFile, "utf-8");
+  expect(result).toContain("container");
+  expect(result).toContain("textBold");
+  expect(result).toContain("textLarge");
+  expect(result).not.toContain("unused");
+});
+
+test("handles optional styles correctly", () => {
+  execSync(`tsx src/index.ts -d ${testDir} --no-format`);
+  const result = fs.readFileSync(optionalStylesTestFile, "utf-8");
+  expect(result).toContain("container");
+  expect(result).toContain("textBold");
+  expect(result).toContain("textSmall");
+  expect(result).toContain("textLarge");
   expect(result).not.toContain("unused");
 });
