@@ -67,6 +67,13 @@ Note: The formatting of the outputted code will be initially removed during the 
 
 Contributions are welcome! Please open an issue or submit a pull request with your changes.
 
+## Visual Studio Code Extension
+
+There is also a Visual Studio Code extension version of this project available. You can find it at:
+
+- GitHub: https://github.com/theBGuy/vs-react-native-stylesheet-cleaner
+- Visual Studio Marketplace: https://marketplace.visualstudio.com/items?itemName=theBGuy.react-native-stylesheet-cleaner
+
 ## License
 
 This project is licensed under the MIT License.
