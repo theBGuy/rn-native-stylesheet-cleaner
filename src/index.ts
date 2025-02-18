@@ -11,62 +11,141 @@ import { detectFormatter, formatFile } from "./utils";
 const program = new Command();
 
 program
-  .version(version, "-V, --version", "output the current version")
+  .version(version, "-v, --version", "output the current version")
   .option("-d, --directory <path>", "directory to parse", "src")
   .option("-i, --include <patterns>", "file patterns to include", "**/*.{jsx,tsx}")
   .option("-e, --exclude <patterns>", "file patterns to exclude", "")
   .option("--no-format", "run without formatting the output")
   .option("--dry-run", "run without making any changes")
   .option("--verbose", "output detailed information")
-  .parse(process.argv);
+  .action(async (options) => {
+    const directoryPath = path.isAbsolute(options.directory)
+      ? options.directory
+      : path.resolve(process.cwd(), options.directory);
+    const includePatterns: string = options.include;
+    const excludePatterns: string = options.exclude;
+    const isDryRun = options.dryRun;
+    const isVerbose = options.verbose;
+    const noFormat = options.format === false;
+    const formatter = detectFormatter(process.cwd());
 
-const options = program.opts();
+    const log = (message?: any, ...optionalParams: any[]) => {
+      if (isVerbose) {
+        console.log(message, ...optionalParams);
+      }
+    };
 
-if (process.argv.includes("-V") || process.argv.includes("--version")) {
-  process.exit(0);
-}
+    log(formatter ? `${formatter} detected` : "No formatter detected; skipping formatting.");
 
-const directoryPath = path.isAbsolute(options.directory)
-  ? options.directory
-  : path.resolve(process.cwd(), options.directory);
-const includePatterns: string = options.include;
-const excludePatterns: string = options.exclude;
-const isDryRun = options.dryRun;
-const isVerbose = options.verbose;
-const noFormat = options.format === false;
-const formatter = detectFormatter(process.cwd());
+    const parseFile = (filePath: string) => {
+      const sourceCode = fs.readFileSync(filePath, "utf-8");
+      const isTsx = filePath.endsWith(".tsx");
+      const isJsx = filePath.endsWith(".jsx");
 
-const log = (message?: any, ...optionalParams: any[]) => {
-  if (isVerbose) {
-    console.log(message, ...optionalParams);
-  }
-};
+      let hasChanges = false;
+      const scriptKind = isTsx ? ts.ScriptKind.TSX : isJsx ? ts.ScriptKind.JSX : ts.ScriptKind.Unknown;
+      const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.Latest, true, scriptKind);
+      const usedStyles = new Set<string>();
 
-log(formatter ? `${formatter} detected` : "No formatter detected; skipping formatting.");
+      function visitReferences(node: ts.Node) {
+        if (ts.isPropertyAccessExpression(node) && node.expression.getText() === "styles") {
+          const propertyName = node.name.getText();
+          usedStyles.add(propertyName);
+        }
+        ts.forEachChild(node, visitReferences);
+      }
+      ts.forEachChild(sourceFile, visitReferences);
 
-const parseFile = (filePath: string) => {
-  const sourceCode = fs.readFileSync(filePath, "utf-8");
-  const isTsx = filePath.endsWith(".tsx");
-  const isJsx = filePath.endsWith(".jsx");
+      const transformer = (context: ts.TransformationContext) => {
+        return (node: ts.Node): ts.Node => {
+          function visit(node: ts.Node): ts.Node {
+            // Handle `StyleSheet.create` transformation
+            if (
+              ts.isVariableDeclaration(node) &&
+              node.name.getText() === "styles" &&
+              node.initializer &&
+              ts.isCallExpression(node.initializer) &&
+              ts.isPropertyAccessExpression(node.initializer.expression) &&
+              node.initializer.expression.getText() === "StyleSheet.create"
+            ) {
+              const arg = node.initializer.arguments[0];
+              if (ts.isObjectLiteralExpression(arg)) {
+                const properties = arg.properties.filter((property) => {
+                  if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name)) {
+                    const isUsed = usedStyles.has(property.name.text);
+                    !isUsed && !hasChanges && (hasChanges = true);
+                    return isUsed;
+                  }
+                  return true;
+                });
 
-  let hasChanges = false;
-  const scriptKind = isTsx ? ts.ScriptKind.TSX : isJsx ? ts.ScriptKind.JSX : ts.ScriptKind.Unknown;
-  const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.Latest, true, scriptKind);
-  const usedStyles = new Set<string>();
+                if (properties.length > 0) {
+                  return ts.factory.updateVariableDeclaration(
+                    node,
+                    node.name,
+                    node.exclamationToken,
+                    node.type,
+                    ts.factory.updateCallExpression(node.initializer, node.initializer.expression, undefined, [
+                      ts.factory.updateObjectLiteralExpression(arg, properties),
+                    ]),
+                  );
+                }
+                // If no properties are left, set to StyleSheet.create({})
+                return ts.factory.updateVariableDeclaration(
+                  node,
+                  node.name,
+                  node.exclamationToken,
+                  node.type,
+                  ts.factory.createCallExpression(
+                    ts.factory.createPropertyAccessExpression(
+                      ts.factory.createIdentifier("StyleSheet"),
+                      ts.factory.createIdentifier("create"),
+                    ),
+                    undefined,
+                    [ts.factory.createObjectLiteralExpression([], true)],
+                  ),
+                );
+              }
+            }
 
-  function visitReferences(node: ts.Node) {
-    if (ts.isPropertyAccessExpression(node) && node.expression.getText() === "styles") {
-      const propertyName = node.name.getText();
-      usedStyles.add(propertyName);
-    }
-    ts.forEachChild(node, visitReferences);
-  }
-  ts.forEachChild(sourceFile, visitReferences);
+            return ts.visitEachChild(node, visit, context);
+          }
 
-  const transformer = (context: ts.TransformationContext) => {
-    return (node: ts.Node): ts.Node => {
-      function visit(node: ts.Node): ts.Node {
-        // Handle `StyleSheet.create` transformation
+          return ts.visitNode(node, visit);
+        };
+      };
+
+      const result = ts.transform(sourceFile, [transformer]);
+      const transformedSourceFile = result.transformed[0] as ts.SourceFile;
+      const updatedCode = ts
+        .createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false })
+        .printFile(transformedSourceFile);
+
+      result.dispose();
+
+      if (hasChanges) {
+        const updatedSourceFile = ts.createSourceFile(filePath, updatedCode, ts.ScriptTarget.Latest, true, scriptKind);
+        const updatedStylesheet = extractStylesheet(updatedSourceFile);
+        const finalCode = replaceStylesheet(sourceCode, updatedStylesheet);
+
+        if (!isDryRun) {
+          fs.writeFileSync(filePath, finalCode, "utf-8");
+          if (!noFormat) {
+            formatFile(filePath, formatter);
+          }
+          log(`Updated file: ${filePath}`);
+        } else {
+          log(`Dry run: ${filePath} would be updated`);
+        }
+      } else {
+        log(`No changes made to: ${filePath}`);
+      }
+    };
+
+    const extractStylesheet = (sourceFile: ts.SourceFile): string => {
+      let stylesheetCode = "";
+
+      function visit(node: ts.Node) {
         if (
           ts.isVariableDeclaration(node) &&
           node.name.getText() === "styles" &&
@@ -75,128 +154,45 @@ const parseFile = (filePath: string) => {
           ts.isPropertyAccessExpression(node.initializer.expression) &&
           node.initializer.expression.getText() === "StyleSheet.create"
         ) {
-          const arg = node.initializer.arguments[0];
-          if (ts.isObjectLiteralExpression(arg)) {
-            const properties = arg.properties.filter((property) => {
-              if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name)) {
-                const isUsed = usedStyles.has(property.name.text);
-                !isUsed && !hasChanges && (hasChanges = true);
-                return isUsed;
-              }
-              return true;
-            });
-
-            if (properties.length > 0) {
-              return ts.factory.updateVariableDeclaration(
-                node,
-                node.name,
-                node.exclamationToken,
-                node.type,
-                ts.factory.updateCallExpression(node.initializer, node.initializer.expression, undefined, [
-                  ts.factory.updateObjectLiteralExpression(arg, properties),
-                ]),
-              );
-            }
-            // If no properties are left, set to StyleSheet.create({})
-            return ts.factory.updateVariableDeclaration(
-              node,
-              node.name,
-              node.exclamationToken,
-              node.type,
-              ts.factory.createCallExpression(
-                ts.factory.createPropertyAccessExpression(
-                  ts.factory.createIdentifier("StyleSheet"),
-                  ts.factory.createIdentifier("create"),
-                ),
-                undefined,
-                [ts.factory.createObjectLiteralExpression([], true)],
-              ),
-            );
-          }
+          const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
+          stylesheetCode = printer.printNode(ts.EmitHint.Unspecified, node.initializer, sourceFile);
         }
-
-        return ts.visitEachChild(node, visit, context);
+        ts.forEachChild(node, visit);
       }
-
-      return ts.visitNode(node, visit);
+      ts.forEachChild(sourceFile, visit);
+      return stylesheetCode;
     };
-  };
 
-  const result = ts.transform(sourceFile, [transformer]);
-  const transformedSourceFile = result.transformed[0] as ts.SourceFile;
-  const updatedCode = ts
-    .createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false })
-    .printFile(transformedSourceFile);
+    const replaceStylesheet = (sourceCode: string, updatedStylesheet: string): string => {
+      return sourceCode.replace(/StyleSheet\.create\(\{[\s\S]*?\}\)/, updatedStylesheet);
+    };
 
-  result.dispose();
+    const shouldIncludeFile = (filePath: string) => {
+      const relativePath = path.relative(process.cwd(), filePath); // Make paths relative
+      const includePatternsArray = includePatterns.trim().split(/\s+/); // Split by space
+      const excludePatternsArray = excludePatterns.trim().split(/\s+/);
 
-  if (hasChanges) {
-    const updatedSourceFile = ts.createSourceFile(filePath, updatedCode, ts.ScriptTarget.Latest, true, scriptKind);
-    const updatedStylesheet = extractStylesheet(updatedSourceFile);
-    const finalCode = replaceStylesheet(sourceCode, updatedStylesheet);
+      const isIncluded = includePatternsArray.some((pattern) => minimatch(relativePath, pattern));
+      const isExcluded = excludePatternsArray.some((pattern) => minimatch(relativePath, pattern));
 
-    if (!isDryRun) {
-      fs.writeFileSync(filePath, finalCode, "utf-8");
-      if (!noFormat) {
-        formatFile(filePath, formatter);
+      log("Matching:", relativePath, { isIncluded, isExcluded });
+
+      return isIncluded && !isExcluded;
+    };
+
+    const parseDirectory = (dirPath: string) => {
+      const files = fs.readdirSync(dirPath);
+      log(dirPath, files.length);
+      for (const file of files) {
+        const filePath = path.join(dirPath, file);
+        if (fs.statSync(filePath).isDirectory()) {
+          parseDirectory(filePath);
+        } else if (shouldIncludeFile(filePath)) {
+          parseFile(filePath);
+        }
       }
-      log(`Updated file: ${filePath}`);
-    } else {
-      log(`Dry run: ${filePath} would be updated`);
-    }
-  } else {
-    log(`No changes made to: ${filePath}`);
-  }
-};
+    };
 
-const extractStylesheet = (sourceFile: ts.SourceFile): string => {
-  let stylesheetCode = "";
-  function visit(node: ts.Node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.name.getText() === "styles" &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer) &&
-      ts.isPropertyAccessExpression(node.initializer.expression) &&
-      node.initializer.expression.getText() === "StyleSheet.create"
-    ) {
-      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
-      stylesheetCode = printer.printNode(ts.EmitHint.Unspecified, node.initializer, sourceFile);
-    }
-    ts.forEachChild(node, visit);
-  }
-  ts.forEachChild(sourceFile, visit);
-  return stylesheetCode;
-};
-
-const replaceStylesheet = (sourceCode: string, updatedStylesheet: string): string => {
-  return sourceCode.replace(/StyleSheet\.create\(\{[\s\S]*?\}\)/, updatedStylesheet);
-};
-
-const shouldIncludeFile = (filePath: string) => {
-  const relativePath = path.relative(process.cwd(), filePath); // Make paths relative
-  const includePatternsArray = includePatterns.trim().split(/\s+/); // Split by space
-  const excludePatternsArray = excludePatterns.trim().split(/\s+/);
-
-  const isIncluded = includePatternsArray.some((pattern) => minimatch(relativePath, pattern));
-  const isExcluded = excludePatternsArray.some((pattern) => minimatch(relativePath, pattern));
-
-  log("Matching:", relativePath, { isIncluded, isExcluded });
-
-  return isIncluded && !isExcluded;
-};
-
-const parseDirectory = (dirPath: string) => {
-  const files = fs.readdirSync(dirPath);
-  log(dirPath, files.length);
-  for (const file of files) {
-    const filePath = path.join(dirPath, file);
-    if (fs.statSync(filePath).isDirectory()) {
-      parseDirectory(filePath);
-    } else if (shouldIncludeFile(filePath)) {
-      parseFile(filePath);
-    }
-  }
-};
-
-parseDirectory(directoryPath);
+    parseDirectory(directoryPath);
+  });
+program.parse(process.argv);
