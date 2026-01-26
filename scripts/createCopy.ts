@@ -1,9 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { execSync } from 'node:child_process';
+import fs from "node:fs";
+import path from "node:path";
 
-const sourceFile = path.join(__dirname, '..', 'example', '_clean.tsx');
-const targetFile = path.join(__dirname, '..', 'example', 'cleaned.tsx');
+const sourceFile = path.join(__dirname, "..", "example", "_clean.tsx");
+const targetFile = path.join(__dirname, "..", "example", "cleaned.tsx");
 
 // Copy the _clean.tsx file to cleaned.tsx
 fs.copyFileSync(sourceFile, targetFile);
