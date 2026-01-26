@@ -10,6 +10,12 @@ import { detectFormatter, formatFile } from "./utils";
 
 const program = new Command();
 
+interface StyleSheetInfo {
+  variableName: string;
+  usedStyles: Set<string>;
+  hasComputedAccess: boolean; // If true, we can't safely remove any styles
+}
+
 program
   .version(version, "-v, --version", "output the current version")
   .option("-d, --directory <path>", "directory to parse", "src")
@@ -29,7 +35,7 @@ program
     const noFormat = options.format === false;
     const formatter = detectFormatter(process.cwd());
 
-    const log = (message?: any, ...optionalParams: any[]) => {
+    const log = (message?: unknown, ...optionalParams: unknown[]) => {
       if (isVerbose) {
         console.log(message, ...optionalParams);
       }
@@ -37,103 +43,261 @@ program
 
     log(formatter ? `${formatter} detected` : "No formatter detected; skipping formatting.");
 
-    const parseFile = (filePath: string) => {
-      const sourceCode = fs.readFileSync(filePath, "utf-8");
-      const isTsx = filePath.endsWith(".tsx");
-      const isJsx = filePath.endsWith(".jsx");
+    /**
+     * Find all StyleSheet.create variable declarations and collect info about them
+     */
+    const findStyleSheetVariables = (sourceFile: ts.SourceFile): Map<string, StyleSheetInfo> => {
+      const styleSheets = new Map<string, StyleSheetInfo>();
 
-      let hasChanges = false;
-      const scriptKind = isTsx ? ts.ScriptKind.TSX : isJsx ? ts.ScriptKind.JSX : ts.ScriptKind.Unknown;
-      const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.Latest, true, scriptKind);
-      const usedStyles = new Set<string>();
-
-      function visitReferences(node: ts.Node) {
-        if (ts.isPropertyAccessExpression(node) && node.expression.getText() === "styles") {
-          const propertyName = node.name.getText();
-          usedStyles.add(propertyName);
+      function visit(node: ts.Node) {
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isIdentifier(node.name) &&
+          node.initializer &&
+          ts.isCallExpression(node.initializer) &&
+          ts.isPropertyAccessExpression(node.initializer.expression) &&
+          node.initializer.expression.getText() === "StyleSheet.create"
+        ) {
+          const variableName = node.name.text;
+          styleSheets.set(variableName, {
+            variableName,
+            usedStyles: new Set<string>(),
+            hasComputedAccess: false,
+          });
         }
-        ts.forEachChild(node, visitReferences);
+        ts.forEachChild(node, visit);
       }
-      ts.forEachChild(sourceFile, visitReferences);
+      ts.forEachChild(sourceFile, visit);
+      return styleSheets;
+    };
 
-      const transformer = (context: ts.TransformationContext) => {
-        return (node: ts.Node): ts.Node => {
-          function visit(node: ts.Node): ts.Node {
-            // Handle `StyleSheet.create` transformation
-            if (
-              ts.isVariableDeclaration(node) &&
-              node.name.getText() === "styles" &&
-              node.initializer &&
-              ts.isCallExpression(node.initializer) &&
-              ts.isPropertyAccessExpression(node.initializer.expression) &&
-              node.initializer.expression.getText() === "StyleSheet.create"
-            ) {
-              const arg = node.initializer.arguments[0];
-              if (ts.isObjectLiteralExpression(arg)) {
-                const properties = arg.properties.filter((property) => {
-                  if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name)) {
-                    const isUsed = usedStyles.has(property.name.text);
-                    !isUsed && !hasChanges && (hasChanges = true);
-                    return isUsed;
+    /**
+     * Collect all style references for the given stylesheet variables
+     */
+    const collectStyleReferences = (sourceFile: ts.SourceFile, styleSheets: Map<string, StyleSheetInfo>) => {
+      function visit(node: ts.Node) {
+        // Handle: styles.propertyName
+        if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+          const objName = node.expression.text;
+          const info = styleSheets.get(objName);
+          if (info) {
+            const propertyName = node.name.getText();
+            info.usedStyles.add(propertyName);
+          }
+        }
+
+        // Handle: styles['propertyName'] or styles["propertyName"]
+        if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)) {
+          const objName = node.expression.text;
+          const info = styleSheets.get(objName);
+          if (info) {
+            if (ts.isStringLiteral(node.argumentExpression)) {
+              info.usedStyles.add(node.argumentExpression.text);
+            } else {
+              // Dynamic access like styles[variable] - mark as having computed access
+              info.hasComputedAccess = true;
+            }
+          }
+        }
+
+        // Handle destructuring: const { container, text } = styles;
+        if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer) {
+          if (ts.isIdentifier(node.initializer)) {
+            const objName = node.initializer.text;
+            const info = styleSheets.get(objName);
+            if (info) {
+              for (const element of node.name.elements) {
+                if (ts.isBindingElement(element)) {
+                  // Handle renamed destructuring: { container: myContainer }
+                  if (element.propertyName && ts.isIdentifier(element.propertyName)) {
+                    info.usedStyles.add(element.propertyName.text);
+                  } else if (ts.isIdentifier(element.name)) {
+                    info.usedStyles.add(element.name.text);
                   }
-                  return true;
-                });
-
-                if (properties.length > 0) {
-                  return ts.factory.updateVariableDeclaration(
-                    node,
-                    node.name,
-                    node.exclamationToken,
-                    node.type,
-                    ts.factory.updateCallExpression(node.initializer, node.initializer.expression, undefined, [
-                      ts.factory.updateObjectLiteralExpression(arg, properties),
-                    ]),
-                  );
                 }
-                // If no properties are left, set to StyleSheet.create({})
-                return ts.factory.updateVariableDeclaration(
-                  node,
-                  node.name,
-                  node.exclamationToken,
-                  node.type,
-                  ts.factory.createCallExpression(
-                    ts.factory.createPropertyAccessExpression(
-                      ts.factory.createIdentifier("StyleSheet"),
-                      ts.factory.createIdentifier("create"),
-                    ),
-                    undefined,
-                    [ts.factory.createObjectLiteralExpression([], true)],
-                  ),
-                );
+              }
+            }
+          }
+        }
+
+        // Handle spread: ...styles (marks all as used since we can't know which)
+        if (ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) {
+          const spreadExpr = ts.isSpreadAssignment(node) ? node.expression : node.expression;
+          if (ts.isIdentifier(spreadExpr)) {
+            const info = styleSheets.get(spreadExpr.text);
+            if (info) {
+              info.hasComputedAccess = true;
+            }
+          }
+        }
+
+        ts.forEachChild(node, visit);
+      }
+      ts.forEachChild(sourceFile, visit);
+    };
+
+    /**
+     * Replace stylesheet in source code using AST positions (preserves formatting)
+     */
+    const replaceStyleSheetByPosition = (
+      sourceCode: string,
+      sourceFile: ts.SourceFile,
+      variableName: string,
+      usedStyles: Set<string>,
+    ): string => {
+      let result = sourceCode;
+      let offset = 0;
+
+      function visit(node: ts.Node) {
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isIdentifier(node.name) &&
+          node.name.text === variableName &&
+          node.initializer &&
+          ts.isCallExpression(node.initializer) &&
+          ts.isPropertyAccessExpression(node.initializer.expression) &&
+          node.initializer.expression.getText() === "StyleSheet.create"
+        ) {
+          const arg = node.initializer.arguments[0];
+          if (ts.isObjectLiteralExpression(arg)) {
+            const propertiesToKeep: string[] = [];
+            const propertiesToRemove: Array<{ start: number; end: number }> = [];
+
+            for (let i = 0; i < arg.properties.length; i++) {
+              const property = arg.properties[i];
+
+              // Get the property name
+              let propName: string | null = null;
+              if (ts.isPropertyAssignment(property)) {
+                if (ts.isIdentifier(property.name)) {
+                  propName = property.name.text;
+                } else if (ts.isStringLiteral(property.name)) {
+                  propName = property.name.text;
+                } else if (ts.isComputedPropertyName(property.name)) {
+                  // Can't statically analyze computed property names - keep them
+                  propertiesToKeep.push("[computed]");
+                  continue;
+                }
+              } else if (ts.isShorthandPropertyAssignment(property)) {
+                propName = property.name.text;
+              } else if (ts.isSpreadAssignment(property)) {
+                // Keep spread assignments
+                propertiesToKeep.push("[spread]");
+                continue;
+              }
+
+              if (propName !== null) {
+                if (usedStyles.has(propName)) {
+                  propertiesToKeep.push(propName);
+                } else {
+                  // Calculate the range to remove (including trailing comma if present)
+                  let start = property.getStart(sourceFile);
+                  let end = property.getEnd();
+
+                  // Look for trailing comma
+                  const nextToken = sourceCode.substring(end).match(/^\s*,/);
+                  if (nextToken) {
+                    end += nextToken[0].length;
+                  }
+
+                  // If this is not the first property and there's no trailing comma,
+                  // we need to remove the leading comma instead
+                  if (i > 0 && !nextToken) {
+                    const prevText = sourceCode.substring(arg.properties[i - 1].getEnd(), start);
+                    const leadingComma = prevText.match(/,\s*$/);
+                    if (leadingComma) {
+                      start -= leadingComma[0].length;
+                    }
+                  }
+
+                  propertiesToRemove.push({ start, end });
+                }
               }
             }
 
-            return ts.visitEachChild(node, visit, context);
+            // Apply removals in reverse order to preserve positions
+            propertiesToRemove.sort((a, b) => b.start - a.start);
+            for (const range of propertiesToRemove) {
+              const adjustedStart = range.start + offset;
+              const adjustedEnd = range.end + offset;
+              result = result.substring(0, adjustedStart) + result.substring(adjustedEnd);
+              offset -= range.end - range.start;
+            }
+
+            // Clean up any leftover formatting issues (multiple commas, trailing commas before })
+            // This is a light cleanup, not a full reformat
+            result = result.replace(/,(\s*,)+/g, ","); // multiple commas
+            result = result.replace(/,(\s*)\}/g, "$1}"); // trailing comma before }
+            result = result.replace(/\{(\s*),/g, "{$1"); // leading comma after {
           }
+        }
+        ts.forEachChild(node, visit);
+      }
+      ts.forEachChild(sourceFile, visit);
 
-          return ts.visitNode(node, visit);
-        };
-      };
+      return result;
+    };
 
-      const result = ts.transform(sourceFile, [transformer]);
-      const transformedSourceFile = result.transformed[0] as ts.SourceFile;
-      const updatedCode = ts
-        .createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false })
-        .printFile(transformedSourceFile);
+    const parseFile = async (filePath: string) => {
+      let sourceCode: string;
+      try {
+        sourceCode = fs.readFileSync(filePath, "utf-8");
+      } catch (err) {
+        console.error(`Error reading file ${filePath}:`, err);
+        return;
+      }
 
-      result.dispose();
+      const isTsx = filePath.endsWith(".tsx");
+      const isJsx = filePath.endsWith(".jsx");
+
+      const scriptKind = isTsx ? ts.ScriptKind.TSX : isJsx ? ts.ScriptKind.JSX : ts.ScriptKind.Unknown;
+      const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.Latest, true, scriptKind);
+
+      // Find all StyleSheet.create declarations
+      const styleSheets = findStyleSheetVariables(sourceFile);
+
+      if (styleSheets.size === 0) {
+        log(`No StyleSheet.create found in: ${filePath}`);
+        return;
+      }
+
+      // Collect all style references
+      collectStyleReferences(sourceFile, styleSheets);
+
+      let hasChanges = false;
+      let updatedCode = sourceCode;
+
+      // Process each stylesheet
+      for (const [variableName, info] of styleSheets) {
+        if (info.hasComputedAccess) {
+          log(`Skipping ${variableName} in ${filePath} - has dynamic/computed access`);
+          continue;
+        }
+
+        // Re-parse to get fresh positions after each modification
+        const currentSourceFile = ts.createSourceFile(filePath, updatedCode, ts.ScriptTarget.Latest, true, scriptKind);
+
+        const definedStyles = getDefinedStyles(currentSourceFile, variableName);
+        const unusedStyles = [...definedStyles].filter((style) => !info.usedStyles.has(style));
+
+        if (unusedStyles.length > 0) {
+          hasChanges = true;
+          log(`Removing unused styles from ${variableName}:`, unusedStyles);
+          updatedCode = replaceStyleSheetByPosition(updatedCode, currentSourceFile, variableName, info.usedStyles);
+        }
+      }
 
       if (hasChanges) {
-        const updatedSourceFile = ts.createSourceFile(filePath, updatedCode, ts.ScriptTarget.Latest, true, scriptKind);
-        const updatedStylesheet = extractStylesheet(updatedSourceFile);
-        const finalCode = replaceStylesheet(sourceCode, updatedStylesheet);
-
         if (!isDryRun) {
-          fs.writeFileSync(filePath, finalCode, "utf-8");
-          if (!noFormat) {
-            formatFile(filePath, formatter);
+          try {
+            fs.writeFileSync(filePath, updatedCode, "utf-8");
+            if (!noFormat && formatter) {
+              await formatFile(filePath, formatter);
+            }
+            log(`Updated file: ${filePath}`);
+          } catch (err) {
+            console.error(`Error writing file ${filePath}:`, err);
           }
-          log(`Updated file: ${filePath}`);
         } else {
           log(`Dry run: ${filePath} would be updated`);
         }
@@ -142,57 +306,90 @@ program
       }
     };
 
-    const extractStylesheet = (sourceFile: ts.SourceFile): string => {
-      let stylesheetCode = "";
+    /**
+     * Get all defined style names in a StyleSheet.create call
+     */
+    const getDefinedStyles = (sourceFile: ts.SourceFile, variableName: string): Set<string> => {
+      const styles = new Set<string>();
 
       function visit(node: ts.Node) {
         if (
           ts.isVariableDeclaration(node) &&
-          node.name.getText() === "styles" &&
+          ts.isIdentifier(node.name) &&
+          node.name.text === variableName &&
           node.initializer &&
           ts.isCallExpression(node.initializer) &&
           ts.isPropertyAccessExpression(node.initializer.expression) &&
           node.initializer.expression.getText() === "StyleSheet.create"
         ) {
-          const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
-          stylesheetCode = printer.printNode(ts.EmitHint.Unspecified, node.initializer, sourceFile);
+          const arg = node.initializer.arguments[0];
+          if (ts.isObjectLiteralExpression(arg)) {
+            for (const property of arg.properties) {
+              if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+                if (ts.isIdentifier(property.name)) {
+                  styles.add(property.name.text);
+                } else if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.name)) {
+                  styles.add(property.name.text);
+                }
+              }
+            }
+          }
         }
         ts.forEachChild(node, visit);
       }
       ts.forEachChild(sourceFile, visit);
-      return stylesheetCode;
-    };
-
-    const replaceStylesheet = (sourceCode: string, updatedStylesheet: string): string => {
-      return sourceCode.replace(/StyleSheet\.create\(\{[\s\S]*?\}\)/, updatedStylesheet);
+      return styles;
     };
 
     const shouldIncludeFile = (filePath: string) => {
-      const relativePath = path.relative(process.cwd(), filePath); // Make paths relative
-      const includePatternsArray = includePatterns.trim().split(/\s+/); // Split by space
-      const excludePatternsArray = excludePatterns.trim().split(/\s+/);
+      const relativePath = path.relative(process.cwd(), filePath);
+      // Normalize path separators for cross-platform glob matching
+      const normalizedPath = relativePath.replace(/\\/g, "/");
 
-      const isIncluded = includePatternsArray.some((pattern) => minimatch(relativePath, pattern));
-      const isExcluded = excludePatternsArray.some((pattern) => minimatch(relativePath, pattern));
+      const includePatternsArray = includePatterns
+        .trim()
+        .split(/\s+/)
+        .filter((p) => p.length > 0);
+      const excludePatternsArray = excludePatterns
+        .trim()
+        .split(/\s+/)
+        .filter((p) => p.length > 0);
 
-      log("Matching:", relativePath, { isIncluded, isExcluded });
+      const isIncluded = includePatternsArray.some((pattern) => minimatch(normalizedPath, pattern));
+      const isExcluded =
+        excludePatternsArray.length > 0 && excludePatternsArray.some((pattern) => minimatch(normalizedPath, pattern));
+
+      log("Matching:", normalizedPath, { isIncluded, isExcluded });
 
       return isIncluded && !isExcluded;
     };
 
-    const parseDirectory = (dirPath: string) => {
-      const files = fs.readdirSync(dirPath);
+    const parseDirectory = async (dirPath: string) => {
+      let files: string[];
+      try {
+        files = fs.readdirSync(dirPath);
+      } catch (err) {
+        console.error(`Error reading directory ${dirPath}:`, err);
+        return;
+      }
+
       log(dirPath, files.length);
+
       for (const file of files) {
         const filePath = path.join(dirPath, file);
-        if (fs.statSync(filePath).isDirectory()) {
-          parseDirectory(filePath);
-        } else if (shouldIncludeFile(filePath)) {
-          parseFile(filePath);
+        try {
+          if (fs.statSync(filePath).isDirectory()) {
+            await parseDirectory(filePath);
+          } else if (shouldIncludeFile(filePath)) {
+            await parseFile(filePath);
+          }
+        } catch (err) {
+          console.error(`Error processing ${filePath}:`, err);
         }
       }
     };
 
-    parseDirectory(directoryPath);
+    await parseDirectory(directoryPath);
   });
+
 program.parse(process.argv);
