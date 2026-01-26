@@ -42,6 +42,10 @@ You can also use the shorthand command:
 rn-ss-cleaner
 ```
 
+```bash
+styles-cleaner
+```
+
 This will scan your project for stylesheets, identify unused styles, and clean them up.
 
 ### Options
@@ -58,10 +62,6 @@ Example:
 ```bash
 rn-native-stylesheet-cleaner --dry-run --verbose
 ```
-
-## Warning
-
-Note: The formatting of the outputted code will be initially removed during the cleaning process. However, if you have Prettier or Biome installed, the code will be reformatted automatically. You can turn off the reformatting behavior by using the `--no-format` flag if you prefer to handle formatting manually.
 
 ## Contributing
 
